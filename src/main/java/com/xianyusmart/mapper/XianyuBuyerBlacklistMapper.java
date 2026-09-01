@@ -2,6 +2,7 @@ package com.xianyusmart.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.xianyusmart.entity.XianyuBuyerBlacklist;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -10,6 +11,12 @@ import java.util.List;
 
 @Mapper
 public interface XianyuBuyerBlacklistMapper extends BaseMapper<XianyuBuyerBlacklist> {
+
+    /**
+     * Delete account-scoped entries only; global entries have a NULL account ID.
+     */
+    @Delete("DELETE FROM xianyu_buyer_blacklist WHERE xianyu_account_id = #{accountId}")
+    int deleteByAccountId(@Param("accountId") Long accountId);
 
     @Select("SELECT COUNT(1) FROM xianyu_buyer_blacklist " +
             "WHERE buyer_user_id = #{buyerUserId} AND enabled = 1 " +

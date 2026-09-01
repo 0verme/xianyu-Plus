@@ -6,6 +6,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlywayMigrationConsistencyTest {
@@ -39,6 +40,16 @@ class FlywayMigrationConsistencyTest {
 
         assertTrue(v20.contains("MODIFY COLUMN kami_item_id BIGINT NULL"));
         assertTrue(v20.contains("ON DELETE SET NULL"));
+    }
+
+    @Test
+    void buyerBlacklistMigrationUsesRestrictiveForeignKeyForGeneratedScope() throws IOException {
+        String v21 = new ClassPathResource("db/migration/V21__add_buyer_blacklist.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(v21.contains("account_scope BIGINT GENERATED ALWAYS AS"));
+        assertTrue(v21.contains("ON DELETE RESTRICT"));
+        assertFalse(v21.contains("ON DELETE CASCADE"));
     }
 
     @Test

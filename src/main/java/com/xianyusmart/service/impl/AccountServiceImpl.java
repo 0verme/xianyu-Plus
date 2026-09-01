@@ -15,6 +15,7 @@ import com.xianyusmart.mapper.XianyuGoodsOrderMapper;
 import com.xianyusmart.mapper.XianyuGoodsAutoReplyRecordMapper;
 import com.xianyusmart.mapper.XianyuOperationLogMapper;
 import com.xianyusmart.mapper.XianyuAiBargainSessionMapper;
+import com.xianyusmart.mapper.XianyuBuyerBlacklistMapper;
 import com.xianyusmart.service.AccountService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +35,9 @@ public class AccountServiceImpl implements AccountService {
 
     @Autowired
     private XianyuAccountMapper accountMapper;
+
+    @Autowired
+    private XianyuBuyerBlacklistMapper buyerBlacklistMapper;
 
     @Autowired
     private XianyuCookieMapper cookieMapper;
@@ -528,8 +532,12 @@ public class AccountServiceImpl implements AccountService {
             cookieQuery.eq(XianyuCookie::getXianyuAccountId, accountId);
             int cookieCount = cookieMapper.delete(cookieQuery);
             log.info("删除Cookie数据: accountId={}, 删除数量={}", accountId, cookieCount);
-            
-            // 10. 删除闲鱼账号表数据
+
+            // 10. 先删除账号专属买家黑名单，满足 RESTRICT 外键约束；全局黑名单保留。
+            int buyerBlacklistCount = buyerBlacklistMapper.deleteByAccountId(accountId);
+            log.info("删除账号专属买家黑名单: accountId={}, 删除数量={}", accountId, buyerBlacklistCount);
+
+            // 11. 删除闲鱼账号表数据
             int accountCount = accountMapper.deleteById(accountId);
             log.info("删除账号数据: accountId={}, 删除数量={}", accountId, accountCount);
             
