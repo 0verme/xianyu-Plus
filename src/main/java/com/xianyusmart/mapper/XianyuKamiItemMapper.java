@@ -46,26 +46,51 @@ public interface XianyuKamiItemMapper extends BaseMapper<XianyuKamiItem> {
     @Select("SELECT COUNT(*) FROM xianyu_kami_item WHERE kami_config_id = #{kamiConfigId}")
     int countByConfigId(@Param("kamiConfigId") Long kamiConfigId);
 
+    @Select("SELECT COUNT(*) FROM xianyu_kami_item WHERE kami_config_id = #{kamiConfigId} AND status = #{status}")
+    int countByConfigIdAndStatus(@Param("kamiConfigId") Long kamiConfigId, @Param("status") Integer status);
+
     @Select("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM xianyu_kami_item WHERE kami_config_id = #{kamiConfigId}")
     int nextSortOrder(@Param("kamiConfigId") Long kamiConfigId);
 
     @Select("SELECT COUNT(*) FROM xianyu_kami_item WHERE kami_config_id = #{kamiConfigId} AND kami_content = #{kamiContent}")
     int countByConfigIdAndContent(@Param("kamiConfigId") Long kamiConfigId, @Param("kamiContent") String kamiContent);
 
-    @Delete("DELETE FROM xianyu_kami_item WHERE id = #{id} AND status IN (0, 1, 3)")
+    @Delete("DELETE i FROM xianyu_kami_item i " +
+            "LEFT JOIN xianyu_kami_usage_record u " +
+            "ON u.kami_item_id = i.id " +
+            "AND u.kami_config_id = i.kami_config_id " +
+            "AND u.order_id = i.order_id " +
+            "WHERE i.id = #{id} " +
+            "AND (i.status IN (0, 3) OR (i.status = 1 AND u.id IS NOT NULL))")
     int deleteIfNotPending(@Param("id") Long id);
 
-    @Delete("<script>DELETE FROM xianyu_kami_item WHERE status IN (0, 1, 3) AND id IN " +
-            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    @Delete("<script>DELETE i FROM xianyu_kami_item i " +
+            "LEFT JOIN xianyu_kami_usage_record u " +
+            "ON u.kami_item_id = i.id " +
+            "AND u.kami_config_id = i.kami_config_id " +
+            "AND u.order_id = i.order_id " +
+            "WHERE i.id IN " +
+            "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
+            "AND (i.status IN (0, 3) OR (i.status = 1 AND u.id IS NOT NULL))</script>")
     int deleteBatchIfNotPending(@Param("ids") List<Long> ids);
 
     @Update("<script>UPDATE xianyu_kami_item SET status = 0, order_id = NULL, reserved_time = NULL, used_time = NULL " +
             "WHERE status IN (1, 3) AND id IN " +
             "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
     int markUnusedBatch(@Param("ids") List<Long> ids);
-    /** Deletes only completed-used codes in the selected card library. */
-    @Delete("DELETE FROM xianyu_kami_item WHERE kami_config_id = #{kamiConfigId} AND status = 1")
-    int deleteUsedByConfigId(@Param("kamiConfigId") Long kamiConfigId);
+
+    /**
+     * 只删除已由 usage record 完全匹配凭证的 DELIVERED 项。
+     */
+    @Delete("<script>DELETE i FROM xianyu_kami_item i " +
+            "INNER JOIN xianyu_kami_usage_record u " +
+            "ON u.kami_item_id = i.id " +
+            "AND u.kami_config_id = i.kami_config_id " +
+            "AND u.order_id = i.order_id " +
+            "WHERE i.kami_config_id = #{kamiConfigId} AND i.status = 1 " +
+            "AND i.id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+    int deleteArchivableDelivered(@Param("kamiConfigId") Long kamiConfigId,
+                                  @Param("ids") List<Long> ids);
 
     @Update("UPDATE xianyu_kami_item SET status = 1, order_id = #{orderId}, used_time = NOW(3) WHERE id = #{id} AND status = 0")
     int markUsed(@Param("id") Long id, @Param("orderId") String orderId);

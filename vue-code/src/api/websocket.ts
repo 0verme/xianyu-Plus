@@ -61,7 +61,7 @@ export function stopConnection(accountId: number) {
 
 // 更新Cookie
 export function updateCookie(data: { xianyuAccountId: number; cookieText: string }) {
-  return request({
+  return request<{ message?: string }>({
     url: '/websocket/updateCookie',
     method: 'POST',
     data
@@ -79,7 +79,7 @@ export interface SendMessageRequest {
 
 // 发送消息
 export function sendMessage(data: SendMessageRequest) {
-  return request<ApiResponse<any>>({
+  return request<ApiResponse<unknown>>({
     url: '/websocket/sendMessage',
     method: 'POST',
     data

@@ -16,6 +16,8 @@ import com.xianyusmart.mapper.XianyuGoodsAutoReplyRecordMapper;
 import com.xianyusmart.mapper.XianyuOperationLogMapper;
 import com.xianyusmart.mapper.XianyuAiBargainSessionMapper;
 import com.xianyusmart.mapper.XianyuBuyerBlacklistMapper;
+import com.xianyusmart.mapper.XianyuKamiUsageRecordMapper;
+import com.xianyusmart.exception.HistoryDeletionRequiredException;
 import com.xianyusmart.service.AccountService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -68,6 +70,9 @@ public class AccountServiceImpl implements AccountService {
 
     @Autowired
     private XianyuAiBargainSessionMapper bargainSessionMapper;
+
+    @Autowired
+    private XianyuKamiUsageRecordMapper kamiUsageRecordMapper;
 
     @Autowired
     private CredentialUpdateCoordinator credentialUpdateCoordinator;
@@ -490,7 +495,30 @@ public class AccountServiceImpl implements AccountService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean deleteAccountAndRelatedData(Long accountId) {
+        return deleteAccountAndRelatedData(accountId, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean deleteAccountAndRelatedData(Long accountId, boolean confirmHistoryDeletion) {
         try {
+            // 账号行是删除与交付提交之间的串行化边界，避免确认检查和级联删除之间出现竞态。
+            XianyuAccount lockedAccount = accountMapper.lockById(accountId);
+            if (lockedAccount == null) {
+                lockedAccount = accountMapper.selectById(accountId);
+            }
+            if (lockedAccount == null) {
+                throw new IllegalArgumentException("账号不存在");
+            }
+
+            long historyCount = getKamiUsageHistoryCount(accountId);
+            if (historyCount > 0 && !confirmHistoryDeletion) {
+                throw new HistoryDeletionRequiredException(historyCount,
+                        "该账号关联 " + historyCount
+                                + " 条本地卡密使用历史。继续删除账号将永久删除这些历史记录，"
+                                + "且当前 Web 逻辑备份无法恢复。请明确确认后重试。");
+            }
+
             log.info("开始删除账号及其所有关联数据: accountId={}", accountId);
             
             // 1. 删除闲鱼聊天消息表数据
@@ -543,10 +571,20 @@ public class AccountServiceImpl implements AccountService {
             
             log.info("账号及其所有关联数据删除成功: accountId={}", accountId);
             return true;
+        } catch (HistoryDeletionRequiredException e) {
+            throw e;
         } catch (Exception e) {
             log.error("删除账号及其关联数据失败: accountId={}", accountId, e);
             throw new RuntimeException("删除账号失败: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public long getKamiUsageHistoryCount(Long accountId) {
+        if (accountId == null) {
+            return 0;
+        }
+        return kamiUsageRecordMapper.countByAccountId(accountId);
     }
     
     @Override

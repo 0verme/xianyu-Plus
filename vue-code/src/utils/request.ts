@@ -6,6 +6,14 @@ import type { ApiResponse } from '@/types'
 const TOKEN_KEY = 'xianyu_auth_token'
 const USERNAME_KEY = 'xianyu_auth_username'
 
+/** 只允许跳转到当前站点的固定登录路径，避免把服务端响应当作重定向目标。 */
+function redirectToLogin() {
+  const loginUrl = new URL('/login', window.location.origin)
+  if (loginUrl.origin === window.location.origin) {
+    window.location.assign(loginUrl.pathname)
+  }
+}
+
 /** 获取Token */
 export function getAuthToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -30,7 +38,7 @@ export function getAuthUsername(): string | null {
 
 /** 是否已登录 */
 export function isLoggedIn(): boolean {
-  return !!getAuthToken()
+  return Boolean(getAuthToken())
 }
 
 // 创建 axios 实例
@@ -59,7 +67,7 @@ service.interceptors.request.use(
 
 // 响应拦截器
 service.interceptors.response.use(
-  (response: AxiosResponse<ApiResponse<any>>) => {
+  (response: AxiosResponse<ApiResponse<unknown>>) => {
     const res = response.data
 
     // 401未登录 -> 跳转登录页
@@ -67,8 +75,8 @@ service.interceptors.response.use(
       clearAuthToken()
       // 避免在登录页重复跳转
       if (!window.location.pathname.includes('/login')) {
-        toast.error(res.msg || '登录已过期，请重新登录')
-        window.location.href = '/login'
+        toast.error(res.msg || '登录已过期,请重新登录')
+        redirectToLogin()
       }
       return Promise.reject(new Error(res.msg || '未登录'))
     }
@@ -81,10 +89,21 @@ service.interceptors.response.use(
     // 如果响应码不是 0 或 200，认为是错误
     if (res.code !== 0 && res.code !== 200) {
       const errorMsg = res.msg || res.message || '请求失败'
-      toast.error(errorMsg)
       const error = new Error(errorMsg)
+      // 保留结构化业务响应，供二次确认等业务流程读取 data。
+      const errorWithMetadata = error as Error & {
+        apiResponse?: ApiResponse<unknown>
+        messageShown?: boolean
+      }
+      errorWithMetadata.apiResponse = res
+      const requiresHistoryConfirmation = (res.data as {
+        historyDeletionRequired?: unknown
+      } | null | undefined)?.historyDeletionRequired === true
+      if (!requiresHistoryConfirmation) {
+        toast.error(errorMsg)
+      }
       // 标记这个错误已经显示过消息，避免重复提示
-      ;(error as any).messageShown = true
+      errorWithMetadata.messageShown = true
       return Promise.reject(error)
     }
 
@@ -94,21 +113,23 @@ service.interceptors.response.use(
     if (error.response?.status === 401) {
       clearAuthToken()
       if (!window.location.pathname.includes('/login')) {
-        toast.error(error.response?.data?.msg || '登录已过期，请重新登录')
-        window.location.href = '/login'
+        toast.error(error.response?.data?.msg || '登录已过期,请重新登录')
+        redirectToLogin()
       }
       return Promise.reject(error)
     }
     // 只有在错误消息未显示过时才弹出提示
-    if (!(error as any).messageShown) {
+    const errorWithMetadata = error as Error & { messageShown?: boolean }
+    if (!errorWithMetadata.messageShown) {
       toast.error(error.message || '网络请求失败')
+      errorWithMetadata.messageShown = true
     }
     return Promise.reject(error)
   }
 )
 
 // 封装请求方法
-export function request<T = any>(config: AxiosRequestConfig): Promise<ApiResponse<T>> {
+export function request<T = unknown>(config: AxiosRequestConfig): Promise<ApiResponse<T>> {
   return service.request<ApiResponse<T>>(config).then(response => response.data)
 }
 

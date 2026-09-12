@@ -9,7 +9,8 @@ import {
   queryKamiItems,
   batchImportKamiItems,
   deleteKamiItem,
-  clearUsedKamiItems,
+  previewUsedKamiItems,
+  archiveUsedKamiItems,
   batchDeleteKamiItems,
   batchResetKamiItems,
   resetKamiItem,
@@ -21,6 +22,9 @@ import {
   type KamiItem,
   type KamiRelatedGoods
 } from '@/api/kami-config'
+import KamiUsageHistoryDialog from './components/KamiUsageHistoryDialog.vue'
+
+defineOptions({ name: 'KamiConfigPage' })
 
 const kamiConfigs = ref<KamiConfig[]>([])
 const configLoading = ref(false)
@@ -112,11 +116,10 @@ const showExportDialog = ref(false)
 const exportStatus = ref<{ unused: boolean; used: boolean }>({ unused: true, used: true })
 
 const isMobile = ref(false)
-const rulesExpanded = ref(false)
-
 const filterStatus = ref<number | undefined>(undefined)
 const filterKeyword = ref('')
-const clearingUsedItems = ref(false)
+const archivingUsedItems = ref(false)
+const showUsageHistoryDialog = ref(false)
 const batchKamiActionLoading = ref(false)
 const selectedKamiItemIds = ref<number[]>([])
 
@@ -125,7 +128,7 @@ const checkScreenSize = () => {
 }
 
 // 卡券库不再属于单个账号，进入页面时清除其他页面遗留的账号筛选器。
-const setHeaderContent = inject<(content: any) => void>('setHeaderContent')
+const setHeaderContent = inject<(content: unknown) => void>('setHeaderContent')
 
 const selectedConfig = computed(() => {
   return kamiConfigs.value.find(c => c.id === selectedConfigId.value)
@@ -329,7 +332,7 @@ const handleCreate = async () => {
     } else {
       toast.error(res.msg || '创建失败')
     }
-  } catch (e) {
+  } catch {
     toast.error('创建失败')
   } finally {
     createLoading.value = false
@@ -372,7 +375,7 @@ const handleTestApi = async () => {
       apiTestResult.value = `失败：${res.msg || '接口测试失败'}`
       toast.error(res.msg || '接口测试失败')
     }
-  } catch (e) {
+  } catch {
     apiTestResult.value = '失败：请求未完成，请检查接口地址和网络。'
     toast.error('接口测试失败')
   } finally {
@@ -446,7 +449,7 @@ const handleSaveApi = async () => {
     } else {
       toast.error(res.msg || '保存失败')
     }
-  } catch (e) {
+  } catch {
     toast.error(configSaved ? '卡券库配置已保存，但卡券导入请求失败，请重试导入' : '保存失败')
     if (configSaved) {
       await loadKamiConfigs()
@@ -477,7 +480,7 @@ const openRelatedGoodsDialog = async () => {
     } else {
       toast.error(res.msg || '加载关联商品失败')
     }
-  } catch (e) {
+  } catch {
     toast.error('加载关联商品失败')
   } finally {
     relatedGoodsLoading.value = false
@@ -504,7 +507,7 @@ const handleSaveRelatedGoods = async () => {
     } else {
       toast.error(res.msg || '保存关联商品失败')
     }
-  } catch (e) {
+  } catch {
     toast.error('保存关联商品失败')
   } finally {
     relatedGoodsSaving.value = false
@@ -517,18 +520,40 @@ const handleDeleteConfig = async (config: KamiConfig) => {
       `确定删除卡券库「${config.aliasName || config.id}」及其所有卡券？`,
       '删除确认'
     )
-    const res = await deleteKamiConfig(config.id)
+    let res
+    try {
+      res = await deleteKamiConfig(config.id)
+    } catch (error: unknown) {
+      const history = (error as { apiResponse?: { data?: {
+        historyCount?: number
+        historyDeletionRequired?: boolean
+      } } }).apiResponse?.data
+      if (!history?.historyDeletionRequired) throw error
+
+      await showConfirm(
+        `该卡券库存在 ${history.historyCount} 条本地卡密使用历史。继续删除会永久删除这些历史记录，且当前 Web 逻辑备份无法恢复。确定继续吗？`,
+        '高风险确认：删除使用历史'
+      )
+      res = await deleteKamiConfig(config.id, true)
+    }
     if (res.code === 200) {
       toast.success('删除成功')
       if (selectedConfigId.value === config.id) {
         selectedConfigId.value = null
         kamiItems.value = []
       }
-      loadKamiConfigs()
+      await loadKamiConfigs()
     } else {
       toast.error(res.msg || '删除失败')
     }
-  } catch {}
+  } catch (error: unknown) {
+    const messageShown = typeof error === 'object' && error !== null
+      && (error as { messageShown?: boolean }).messageShown === true
+    if (error !== 'cancel' && !messageShown) {
+      const message = error instanceof Error ? error.message : '删除失败'
+      toast.error(message)
+    }
+  }
 }
 
 const handleDeleteItem = async (item: KamiItem) => {
@@ -605,36 +630,48 @@ const handleBatchResetKamiItems = async () => {
     batchKamiActionLoading.value = false
   }
 }
-const handleClearUsedItems = async () => {
+const handleArchiveUsedItems = async () => {
   const config = selectedConfig.value
   if (!config || !isLocalSource.value) return
 
   const usedCount = config.usedCount || 0
   if (usedCount === 0) {
-    toast.info('\u5f53\u524d\u5361\u5238\u5e93\u6ca1\u6709\u5df2\u4f7f\u7528\u7684\u5361\u5bc6')
+    toast.info('当前卡券库没有已使用的卡券')
     return
   }
 
   try {
+    const previewResponse = await previewUsedKamiItems(config.id)
+    if (previewResponse.code !== 200 || !previewResponse.data) {
+      toast.error(previewResponse.msg || '无法预览归档范围')
+      return
+    }
+    const preview = previewResponse.data
     await showConfirm(
-      `\u5c06\u6c38\u4e45\u5220\u9664\u5f53\u524d\u5361\u5238\u5e93\u4e2d\u7684 ${usedCount} \u6761\u5df2\u4f7f\u7528\u5361\u5bc6\u3002\u672a\u4f7f\u7528\u3001\u53d1\u8d27\u5904\u7406\u4e2d\u548c\u5f85\u6838\u5bf9\u7684\u5361\u5bc6\u4e0d\u4f1a\u53d7\u5230\u5f71\u54cd\u3002\u5220\u9664\u540e\u65e0\u6cd5\u6062\u590d\u3002`,
-      '\u4e8c\u6b21\u786e\u8ba4\uff1a\u6e05\u7406\u5df2\u4f7f\u7528\u5361\u5bc6'
+      `将安全归档 ${preview.archivableCount} 条已使用卡券；${preview.missingHistoryCount} 条因缺少当前交付历史凭证会跳过。使用历史不会删除，确定继续吗？`,
+      '安全归档确认'
     )
-    clearingUsedItems.value = true
-    const res = await clearUsedKamiItems(config.id)
+    archivingUsedItems.value = true
+    const res = await archiveUsedKamiItems(config.id)
     if (res.code === 200) {
-      toast.success(`\u5df2\u6e05\u7406 ${res.data || 0} \u6761\u5df2\u4f7f\u7528\u5361\u5bc6`)
+      toast.success(res.msg || `已安全归档 ${res.data || 0} 条卡券`)
       await loadKamiConfigs()
       await loadKamiItems()
     } else {
-      toast.error(res.msg || '\u6e05\u7406\u5931\u8d25')
+      toast.error(res.msg || '归档失败')
     }
   } catch {
     // User cancellation intentionally has no feedback.
   } finally {
-    clearingUsedItems.value = false
+    archivingUsedItems.value = false
   }
 }
+
+const openUsageHistory = () => {
+  if (!selectedConfig.value || !isLocalSource.value) return
+  showUsageHistoryDialog.value = true
+}
+
 const handleResetItem = async (item: KamiItem) => {
   try {
     await showConfirm('确定重置该卡券为未使用状态？', '重置确认')
@@ -683,7 +720,7 @@ const handleSaveAlert = async () => {
     } else {
       toast.error(res.msg || '保存失败')
     }
-  } catch (e) {
+  } catch {
     toast.error('保存失败')
   } finally {
     alertLoading.value = false
@@ -732,7 +769,7 @@ const handleExport = async () => {
     URL.revokeObjectURL(url)
     toast.success(`已导出 ${allItems.length} 条数据`)
     showExportDialog.value = false
-  } catch (e) {
+  } catch {
     toast.error('导出失败')
   }
 }
@@ -814,7 +851,8 @@ onUnmounted(() => {
             <button class="btn-default btn-sm" @click="openRelatedGoodsDialog">关联商品 {{ selectedConfig?.relatedGoodsCount || 0 }}</button>
             <button class="btn-primary btn-sm" @click="openApiDialog">编辑卡券库</button>
             <template v-if="isLocalSource">
-              <button class="btn-danger btn-sm" :disabled="clearingUsedItems" @click="handleClearUsedItems">{{ clearingUsedItems ? '\u6e05\u7406\u4e2d\u2026' : `\u6e05\u7406\u5df2\u4f7f\u7528\uff08${selectedConfig?.usedCount || 0}\uff09` }}</button>
+              <button class="btn-default btn-sm" @click="openUsageHistory">使用历史</button>
+              <button class="btn-warning btn-sm" :disabled="archivingUsedItems" @click="handleArchiveUsedItems">{{ archivingUsedItems ? '归档中…' : `安全归档已使用（${selectedConfig?.usedCount || 0}）` }}</button>
               <button class="btn-success btn-sm" @click="openExportDialog">导出</button>
               <button class="btn-warning btn-sm" @click="openAlertDialog">预警</button>
             </template>
@@ -939,7 +977,8 @@ onUnmounted(() => {
                 <button class="btn-default" @click="openRelatedGoodsDialog">关联商品 {{ selectedConfig.relatedGoodsCount || 0 }}</button>
                 <button class="btn-primary" @click="openApiDialog">编辑卡券库</button>
                 <template v-if="isLocalSource">
-                  <button class="btn-danger" :disabled="clearingUsedItems" @click="handleClearUsedItems">{{ clearingUsedItems ? '\u6e05\u7406\u4e2d\u2026' : `\u6e05\u7406\u5df2\u4f7f\u7528\uff08${selectedConfig.usedCount || 0}\uff09` }}</button>
+                  <button class="btn-default" @click="openUsageHistory">使用历史</button>
+                  <button class="btn-warning" :disabled="archivingUsedItems" @click="handleArchiveUsedItems">{{ archivingUsedItems ? '归档中…' : `安全归档已使用（${selectedConfig.usedCount || 0}）` }}</button>
 
                   <button class="btn-success" @click="openExportDialog">导出</button>
                   <button class="btn-warning" @click="openAlertDialog">预警配置</button>
@@ -1363,6 +1402,11 @@ onUnmounted(() => {
       </Transition>
     </Teleport>
   </div>
+  <KamiUsageHistoryDialog
+    v-model="showUsageHistoryDialog"
+    :config-id="selectedConfigId"
+    :config-name="selectedConfig?.aliasName"
+  />
 </template>
 
 <style scoped>

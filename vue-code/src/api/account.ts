@@ -1,5 +1,5 @@
 import { request } from '@/utils/request'
-import type { ApiResponse, Account } from '@/types'
+import type { Account } from '@/types'
 
 // 获取账号列表
 export function getAccountList() {
@@ -49,12 +49,13 @@ export function resumeAccountAutomation(data: { accountId: number }) {
 }
 
 // 删除账号
-export function deleteAccount(data: { id: number }) {
+export function deleteAccount(data: { id: number; confirmHistoryDeletion?: boolean }) {
   return request({
     url: '/account/delete',
     method: 'POST',
     data: {
-      accountId: data.id
+      accountId: data.id,
+      confirmHistoryDeletion: data.confirmHistoryDeletion === true
     }
   })
 }

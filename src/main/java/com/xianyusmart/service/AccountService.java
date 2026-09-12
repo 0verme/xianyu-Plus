@@ -90,6 +90,13 @@ public interface AccountService {
      * @return 是否删除成功
      */
     boolean deleteAccountAndRelatedData(Long accountId);
+
+    /**
+     * 删除账号及其关联数据；存在本地卡密使用历史时必须显式确认永久删除。
+     */
+    boolean deleteAccountAndRelatedData(Long accountId, boolean confirmHistoryDeletion);
+
+    long getKamiUsageHistoryCount(Long accountId);
     
     /**
      * 更新Cookie状态

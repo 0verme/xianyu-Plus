@@ -3,6 +3,7 @@ package com.xianyusmart.controller;
 import com.xianyusmart.common.ResultObject;
 import com.xianyusmart.entity.XianyuAccount;
 import com.xianyusmart.entity.XianyuItemPolishConfig;
+import com.xianyusmart.exception.HistoryDeletionRequiredException;
 import com.xianyusmart.mapper.XianyuAccountMapper;
 import com.xianyusmart.mapper.XianyuItemPolishConfigMapper;
 import com.xianyusmart.controller.dto.AccountReqDTO;
@@ -352,29 +353,53 @@ public class AccountController {
     @PostMapping("/delete")
     public ResultObject<DeleteAccountRespDTO> deleteAccount(@RequestBody DeleteAccountReqDTO reqDTO) {
         try {
+            if (reqDTO == null || reqDTO.getAccountId() == null) {
+                return ResultObject.failed("账号ID不能为空");
+            }
             Long id = reqDTO.getAccountId();
-            log.info("删除账号请求: accountId={}", id);
-            
+            boolean confirmHistoryDeletion = Boolean.TRUE.equals(reqDTO.getConfirmHistoryDeletion());
+            log.info("删除账号请求: accountId={}, confirmHistoryDeletion={}", id, confirmHistoryDeletion);
+
             XianyuAccount account = accountMapper.selectById(id);
             if (account == null) {
                 return ResultObject.failed("账号不存在");
             }
-            
+
+            long historyCount = accountService.getKamiUsageHistoryCount(id);
+            if (historyCount > 0 && !confirmHistoryDeletion) {
+                return historyDeletionRequiredResponse(historyCount);
+            }
+
             // 先清理连接与内存任务，避免删除后仍有后台任务访问旧账号。
             deliveryTaskService.pauseAccountTasks(id);
             autoReplyDelayService.cancelAccountTasks(id);
             webSocketService.stopWebSocket(id);
             webSocketTokenService.clearAccountRuntimeState(id);
             webSocketTokenService.clearToken(id);
-            accountService.deleteAccountAndRelatedData(id);
-            
+            accountService.deleteAccountAndRelatedData(id, confirmHistoryDeletion);
+
             DeleteAccountRespDTO respDTO = new DeleteAccountRespDTO();
             respDTO.setMessage("删除成功");
+            respDTO.setHistoryCount(historyCount);
+            respDTO.setHistoryDeletionRequired(false);
             return ResultObject.success(respDTO);
+        } catch (HistoryDeletionRequiredException e) {
+            return historyDeletionRequiredResponse(e.getHistoryCount());
         } catch (Exception e) {
             log.error("删除账号失败", e);
             return ResultObject.failed("删除账号失败: " + e.getMessage());
         }
+    }
+
+    private ResultObject<DeleteAccountRespDTO> historyDeletionRequiredResponse(long historyCount) {
+        String message = "该账号关联 " + historyCount
+                + " 条本地卡密使用历史。继续删除账号将永久删除这些历史记录，"
+                + "且当前 Web 逻辑备份无法恢复。请明确确认后重试。";
+        DeleteAccountRespDTO response = new DeleteAccountRespDTO();
+        response.setMessage(message);
+        response.setHistoryCount(historyCount);
+        response.setHistoryDeletionRequired(true);
+        return ResultObject.failed(409, message, response);
     }
 
     /**

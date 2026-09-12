@@ -43,7 +43,7 @@ const generateQR = async () => {
     } else {
       throw new Error(response.msg || '生成二维码失败')
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('生成二维码失败:', error)
     showError('生成二维码失败')
   }
@@ -132,9 +132,9 @@ const handleLoginSuccess = async () => {
     emit('success')
     handleClose()
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('更新失败:', error)
-    showError(error.message || '更新失败')
+    showError(error instanceof Error ? error.message : '更新失败')
     handleClose()
   }
 }

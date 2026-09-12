@@ -71,6 +71,13 @@ public class ResultObject<T> {
     }
 
     /**
+     * 带结构化数据的失败返回结果，供需要前端二次确认的业务错误使用。
+     */
+    public static <T> ResultObject<T> failed(Integer code, String message, T data) {
+        return new ResultObject<T>(code, message, data);
+    }
+
+    /**
      * 参数验证失败返回结果
      * @param message 提示信息
      * @param <T> 数据类型
