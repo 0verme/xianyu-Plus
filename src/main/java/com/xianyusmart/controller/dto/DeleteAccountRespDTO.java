@@ -8,4 +8,8 @@ import lombok.Data;
 @Data
 public class DeleteAccountRespDTO {
     private String message;       // 响应消息
+
+    private Long historyCount;
+
+    private Boolean historyDeletionRequired;
 }

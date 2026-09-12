@@ -17,6 +17,8 @@ public interface KamiConfigService {
 
     ResultObject<Void> deleteConfig(Long id);
 
+    ResultObject<KamiConfigDeleteRespDTO> deleteConfig(Long id, boolean confirmHistoryDeletion);
+
     ResultObject<KamiItemRespDTO> addKamiItem(KamiItemReqDTO reqDTO);
 
     ResultObject<Integer> batchImportKamiItems(KamiBatchImportReqDTO reqDTO);
@@ -32,6 +34,10 @@ public interface KamiConfigService {
 
     ResultObject<Integer> batchResetKamiItems(List<Long> ids);
     ResultObject<Integer> clearUsedKamiItems(Long kamiConfigId);
+
+    ResultObject<KamiArchivePreviewDTO> previewUsedKamiItems(Long kamiConfigId);
+
+    ResultObject<KamiArchiveResultDTO> archiveUsedKamiItems(Long kamiConfigId);
 
 
     XianyuKamiItem acquireKami(Long kamiConfigId, String orderId);

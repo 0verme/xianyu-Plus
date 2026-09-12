@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
 import { deleteAccount } from '@/api/account';
+import { showConfirm } from '@/utils/confirm';
 import { showSuccess, showError } from '@/utils';
 
 interface Props {
@@ -18,25 +19,72 @@ const emit = defineEmits<Emits>();
 
 const loading = ref(false);
 
+type HistoryDeletionData = {
+  historyCount?: number;
+  historyDeletionRequired?: boolean;
+};
+
+type ApiError = {
+  message?: string;
+  messageShown?: boolean;
+  apiResponse?: { data?: HistoryDeletionData };
+};
+
+const asApiError = (error: unknown): ApiError =>
+  typeof error === 'object' && error !== null ? error as ApiError : {};
+
 const handleClose = () => {
   emit('update:modelValue', false);
 };
 
+const isSuccessful = (response: { code: number; msg?: string }) => {
+  if (response.code === 0 || response.code === 200) {
+    showSuccess('账号删除成功');
+    handleClose();
+    emit('success');
+    return true;
+  }
+  return false;
+};
+
 const handleConfirm = async () => {
   if (!props.accountId) return;
-  
+
   loading.value = true;
   try {
     const response = await deleteAccount({ id: props.accountId });
-    if (response.code === 0 || response.code === 200) {
-      showSuccess('账号删除成功');
-      handleClose();
-      emit('success');
-    } else {
+    if (!isSuccessful(response)) {
       throw new Error(response.msg || '删除失败');
     }
-  } catch (error: any) {
-    console.error('删除失败:', error);
+  } catch (error: unknown) {
+    const apiError = asApiError(error);
+    const history = apiError.apiResponse?.data;
+    if (!history?.historyDeletionRequired) {
+      if (!apiError.messageShown) {
+        showError(apiError.message || '删除失败');
+      }
+      loading.value = false;
+      return;
+    }
+
+    try {
+      await showConfirm(
+        `该账号存在 ${history.historyCount} 条本地卡密使用历史。继续删除会永久删除这些历史记录，且当前 Web 逻辑备份无法恢复。确定继续吗？`,
+        '高风险确认：删除使用历史'
+      );
+      const confirmedResponse = await deleteAccount({
+        id: props.accountId,
+        confirmHistoryDeletion: true
+      });
+      if (!isSuccessful(confirmedResponse)) {
+        showError(confirmedResponse.msg || '删除失败');
+      }
+    } catch (confirmationError: unknown) {
+      const confirmationApiError = asApiError(confirmationError);
+      if (confirmationError !== 'cancel' && !confirmationApiError.messageShown) {
+        showError(confirmationApiError.message || '删除失败');
+      }
+    }
   } finally {
     loading.value = false;
   }
@@ -60,6 +108,7 @@ const handleConfirm = async () => {
             <li>自动发货配置</li>
             <li>自动回复配置</li>
             <li>Cookie信息</li>
+            <li>本地卡密使用历史（若存在，将需再次确认）</li>
           </ul>
         </div>
         

@@ -223,21 +223,46 @@ public class KamiConfigServiceImpl implements KamiConfigService {
     @Override
     @Transactional
     public ResultObject<Void> deleteConfig(Long id) {
+        ResultObject<KamiConfigDeleteRespDTO> result = deleteConfig(id, false);
+        return new ResultObject<>(result.getCode(), result.getMsg(), null);
+    }
+
+    @Override
+    @Transactional
+    public ResultObject<KamiConfigDeleteRespDTO> deleteConfig(Long id, boolean confirmHistoryDeletion) {
         try {
             XianyuKamiConfig config = lockConfig(id);
             if (config == null) {
                 return ResultObject.failed("卡密配置不存在");
             }
+
+            long historyCount = kamiUsageRecordMapper.countByConfigId(id);
+            if (historyCount > 0 && !confirmHistoryDeletion) {
+                KamiConfigDeleteRespDTO response = new KamiConfigDeleteRespDTO();
+                response.setHistoryCount(historyCount);
+                response.setHistoryDeletionRequired(true);
+                String message = "该卡券库存在 " + historyCount
+                        + " 条本地卡密使用历史。继续删除将同时永久删除这些历史记录，"
+                        + "且当前 Web 逻辑备份无法恢复。请明确确认后重试。";
+                response.setMessage(message);
+                return ResultObject.failed(409, message, response);
+            }
+
             detachConfigFromRelatedGoods(id);
             List<XianyuKamiItem> items = kamiItemMapper.findByConfigId(id);
             for (XianyuKamiItem item : items) {
                 kamiItemMapper.deleteById(item.getId());
             }
             kamiConfigMapper.deleteById(id);
-            return ResultObject.success(null);
+
+            KamiConfigDeleteRespDTO response = new KamiConfigDeleteRespDTO();
+            response.setMessage("卡券库删除成功");
+            response.setHistoryCount(historyCount);
+            response.setHistoryDeletionRequired(false);
+            return ResultObject.success(response);
         } catch (Exception e) {
             markTransactionRollbackOnly();
-            log.error("删除卡密配置失败", e);
+            log.error("删除卡密配置失败, configId={}", id, e);
             return ResultObject.failed("删除卡密配置失败: " + e.getMessage());
         }
     }
@@ -359,6 +384,10 @@ public class KamiConfigServiceImpl implements KamiConfigService {
                 return ResultObject.failed("卡密不存在");
             }
             lockConfig(item.getKamiConfigId());
+            if (KamiStatus.DELIVERED.getCode() == item.getStatus()
+                    && !hasCurrentDeliveryHistory(item)) {
+                return ResultObject.failed("已使用卡券缺少对应历史凭证，未删除");
+            }
             int rows = kamiItemMapper.deleteIfNotPending(id);
             if (rows == 0) {
                 return ResultObject.failed("卡券正在发货处理中，暂时不能删除，请稍后重试");
@@ -381,9 +410,25 @@ public class KamiConfigServiceImpl implements KamiConfigService {
         }
         List<XianyuKamiItem> items = kamiItemMapper.selectBatchIds(itemIds);
         lockInventoryConfigs(items);
-        int deleted = kamiItemMapper.deleteBatchIfNotPending(itemIds);
+
+        List<Long> safeItemIds = new ArrayList<>();
+        int missingHistory = 0;
+        for (XianyuKamiItem item : items) {
+            if (KamiStatus.DELIVERED.getCode() == item.getStatus()
+                    && !hasCurrentDeliveryHistory(item)) {
+                missingHistory++;
+                continue;
+            }
+            safeItemIds.add(item.getId());
+        }
+
+        int deleted = safeItemIds.isEmpty() ? 0 : kamiItemMapper.deleteBatchIfNotPending(safeItemIds);
         refreshKamiItemConfigCounts(items);
-        return ResultObject.success(deleted, "已删除 " + deleted + " 张卡券；发货处理中的卡券已跳过");
+        String message = "已删除 " + deleted + " 张卡券；发货处理中的卡券已跳过";
+        if (missingHistory > 0) {
+            message += "；" + missingHistory + " 张已使用卡券因缺少对应历史凭证已跳过";
+        }
+        return ResultObject.success(deleted, message);
     }
 
     @Override
@@ -424,28 +469,71 @@ public class KamiConfigServiceImpl implements KamiConfigService {
     @Override
     @Transactional
     public ResultObject<Integer> clearUsedKamiItems(Long kamiConfigId) {
+        ResultObject<KamiArchiveResultDTO> result = archiveUsedKamiItems(kamiConfigId);
+        if (!Integer.valueOf(200).equals(result.getCode())) {
+            return new ResultObject<>(result.getCode(), result.getMsg(), null);
+        }
+        KamiArchiveResultDTO data = result.getData();
+        return ResultObject.success(data == null || data.getArchivedCount() == null ? 0 : data.getArchivedCount(),
+                result.getMsg());
+    }
+
+    @Override
+    @Transactional
+    public ResultObject<KamiArchivePreviewDTO> previewUsedKamiItems(Long kamiConfigId) {
         try {
-            if (kamiConfigId == null) {
-                return ResultObject.failed("Card library is required");
-            }
-            XianyuKamiConfig config = lockConfig(kamiConfigId);
+            XianyuKamiConfig config = requireLocalConfig(kamiConfigId);
             if (config == null) {
-                return ResultObject.failed("Card library not found");
-            }
-            if (!Integer.valueOf(1).equals(config.getSourceType())) {
-                return ResultObject.failed("Only local card libraries can clear used codes");
+                return ResultObject.failed("卡券库不存在");
             }
 
-            int deleted = kamiItemMapper.deleteUsedByConfigId(kamiConfigId);
-            refreshConfigCounts(kamiConfigId);
-            return ResultObject.success(deleted, "Cleared " + deleted + " used card codes");
+            KamiArchivePreviewDTO preview = buildArchivePreview(kamiConfigId);
+            return ResultObject.success(preview);
+        } catch (IllegalArgumentException e) {
+            return ResultObject.failed(e.getMessage());
         } catch (Exception e) {
             markTransactionRollbackOnly();
-            log.error("Failed to clear used card codes, kamiConfigId={}", kamiConfigId, e);
-            return ResultObject.failed("Failed to clear used card codes: " + e.getMessage());
+            log.error("预览已使用卡券归档失败, configId={}", kamiConfigId, e);
+            return ResultObject.failed("预览已使用卡券归档失败: " + e.getMessage());
         }
     }
 
+    @Override
+    @Transactional
+    public ResultObject<KamiArchiveResultDTO> archiveUsedKamiItems(Long kamiConfigId) {
+        try {
+            XianyuKamiConfig config = requireLocalConfig(kamiConfigId);
+            if (config == null) {
+                return ResultObject.failed("卡券库不存在");
+            }
+
+            KamiArchivePreviewDTO preview = buildArchivePreview(kamiConfigId);
+            List<Long> archivableIds = kamiUsageRecordMapper.findArchivableDeliveredItemIds(kamiConfigId);
+            if (archivableIds == null) {
+                archivableIds = List.of();
+            }
+            int archived = archivableIds.isEmpty()
+                    ? 0
+                    : kamiItemMapper.deleteArchivableDelivered(kamiConfigId, archivableIds);
+            refreshConfigCounts(kamiConfigId);
+
+            KamiArchiveResultDTO result = new KamiArchiveResultDTO();
+            result.setArchivedCount(archived);
+            result.setSkippedMissingHistoryCount(preview.getMissingHistoryCount());
+            String message = "已安全归档 " + archived + " 条已使用卡券，使用历史仍然保留";
+            if (preview.getMissingHistoryCount() > 0) {
+                message += "；" + preview.getMissingHistoryCount()
+                        + " 条因缺少当前交付历史凭证已跳过";
+            }
+            return ResultObject.success(result, message);
+        } catch (IllegalArgumentException e) {
+            return ResultObject.failed(e.getMessage());
+        } catch (Exception e) {
+            markTransactionRollbackOnly();
+            log.error("执行已使用卡券归档失败, configId={}", kamiConfigId, e);
+            return ResultObject.failed("执行已使用卡券归档失败: " + e.getMessage());
+        }
+    }
 
     @Override
     @Transactional
@@ -538,12 +626,16 @@ public class KamiConfigServiceImpl implements KamiConfigService {
             return;
         }
 
-        // 统一先锁卡券库，再更新卡券，避免与预占事务产生反向锁等待。
+        // 账号行是同一 account + businessOrder 下 deliveryIndex 的稳定数据库锁边界。
+        lockDeliveryAccount(accountId);
+        // 再锁卡券库，保持与预占事务一致的锁顺序。
         lockInventoryConfigs(reservedItems);
         if (kamiItemMapper.commitReservation(reservationOrderId, businessOrderId) != reservedItems.size()) {
             throw new BusinessException(409, "卡密交付提交冲突");
         }
 
+        int nextDeliveryIndex = Math.max(0,
+                kamiUsageRecordMapper.findMaxDeliveryIndex(accountId, businessOrderId));
         for (int index = 0; index < reservedItems.size(); index++) {
             XianyuKamiItem item = reservedItems.get(index);
             XianyuKamiUsageRecord usageRecord = new XianyuKamiUsageRecord();
@@ -552,7 +644,7 @@ public class KamiConfigServiceImpl implements KamiConfigService {
             usageRecord.setXianyuAccountId(accountId);
             usageRecord.setXyGoodsId(xyGoodsId);
             usageRecord.setOrderId(businessOrderId);
-            usageRecord.setDeliveryIndex(index + 1);
+            usageRecord.setDeliveryIndex(++nextDeliveryIndex);
             usageRecord.setDeliveryStatus(KamiStatus.DELIVERED.name());
             usageRecord.setBuyerUserId(buyerUserId);
             usageRecord.setBuyerUserName(buyerUserName);
@@ -840,6 +932,56 @@ public class KamiConfigServiceImpl implements KamiConfigService {
                 .distinct()
                 .sorted()
                 .forEach(this::lockConfig);
+    }
+
+    private XianyuKamiConfig requireLocalConfig(Long kamiConfigId) {
+        if (kamiConfigId == null) {
+            throw new IllegalArgumentException("卡券库不能为空");
+        }
+        XianyuKamiConfig config = lockConfig(kamiConfigId);
+        if (config == null) {
+            return null;
+        }
+        if (!Integer.valueOf(1).equals(config.getSourceType())) {
+            throw new IllegalArgumentException("只有本地库存卡券库可以归档已使用卡券");
+        }
+        return config;
+    }
+
+    private KamiArchivePreviewDTO buildArchivePreview(Long kamiConfigId) {
+        int delivered = kamiItemMapper.countByConfigIdAndStatus(
+                kamiConfigId, KamiStatus.DELIVERED.getCode());
+        List<Long> archivableIds = kamiUsageRecordMapper.findArchivableDeliveredItemIds(kamiConfigId);
+        int archivable = archivableIds == null ? 0 : archivableIds.size();
+
+        KamiArchivePreviewDTO preview = new KamiArchivePreviewDTO();
+        preview.setDeliveredCount(delivered);
+        preview.setArchivableCount(archivable);
+        preview.setMissingHistoryCount(Math.max(0, delivered - archivable));
+        preview.setReservedCount(kamiItemMapper.countByConfigIdAndStatus(
+                kamiConfigId, KamiStatus.RESERVED.getCode()));
+        preview.setReviewRequiredCount(kamiItemMapper.countByConfigIdAndStatus(
+                kamiConfigId, KamiStatus.REVIEW_REQUIRED.getCode()));
+        return preview;
+    }
+
+    private boolean hasCurrentDeliveryHistory(XianyuKamiItem item) {
+        return item != null
+                && kamiUsageRecordMapper.countCurrentDeliveryHistory(
+                        item.getId(), item.getKamiConfigId(), item.getOrderId()) > 0;
+    }
+
+    private void lockDeliveryAccount(Long accountId) {
+        if (accountId == null) {
+            return;
+        }
+        XianyuAccount account = accountMapper.lockById(accountId);
+        if (account == null) {
+            account = accountMapper.selectById(accountId);
+        }
+        if (account == null) {
+            throw new BusinessException(409, "发货账号不存在，无法提交卡密交付");
+        }
     }
 
     private void refreshConfigCounts(Long kamiConfigId) {

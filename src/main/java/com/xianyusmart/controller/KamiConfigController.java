@@ -50,9 +50,12 @@ public class KamiConfigController {
     }
 
     @PostMapping("/delete")
-    public ResultObject<Void> deleteConfig(@RequestParam("id") Long id) {
+    public ResultObject<KamiConfigDeleteRespDTO> deleteConfig(
+            @RequestParam("id") Long id,
+            @RequestParam(value = "confirmHistoryDeletion", required = false, defaultValue = "false")
+            boolean confirmHistoryDeletion) {
         try {
-            return kamiConfigService.deleteConfig(id);
+            return kamiConfigService.deleteConfig(id, confirmHistoryDeletion);
         } catch (Exception e) {
             log.error("删除卡密配置失败", e);
             return ResultObject.failed("删除卡密配置失败: " + e.getMessage());
@@ -163,8 +166,30 @@ public class KamiConfigController {
         try {
             return kamiConfigService.clearUsedKamiItems(kamiConfigId);
         } catch (Exception e) {
-            log.error("Failed to clear used card codes, kamiConfigId={}", kamiConfigId, e);
-            return ResultObject.failed("Failed to clear used card codes: " + e.getMessage());
+            log.error("清理已使用卡券失败, kamiConfigId={}", kamiConfigId, e);
+            return ResultObject.failed("清理已使用卡券失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/item/archive-used/preview")
+    public ResultObject<KamiArchivePreviewDTO> previewUsedKamiItems(
+            @RequestParam("kamiConfigId") Long kamiConfigId) {
+        try {
+            return kamiConfigService.previewUsedKamiItems(kamiConfigId);
+        } catch (Exception e) {
+            log.error("预览已使用卡券归档失败, kamiConfigId={}", kamiConfigId, e);
+            return ResultObject.failed("预览已使用卡券归档失败: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/item/archive-used")
+    public ResultObject<KamiArchiveResultDTO> archiveUsedKamiItems(
+            @RequestParam("kamiConfigId") Long kamiConfigId) {
+        try {
+            return kamiConfigService.archiveUsedKamiItems(kamiConfigId);
+        } catch (Exception e) {
+            log.error("执行已使用卡券归档失败, kamiConfigId={}", kamiConfigId, e);
+            return ResultObject.failed("执行已使用卡券归档失败: " + e.getMessage());
         }
     }
 

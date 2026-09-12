@@ -48,7 +48,7 @@ const handleSubmit = async () => {
       handleClose()
       emit('success')
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Cookie更新失败:', error)
   } finally {
     loading.value = false

@@ -37,6 +37,47 @@ export interface KamiItem {
   createTime: string;
 }
 
+export interface KamiConfigDeleteResponse {
+  message: string;
+  historyCount: number;
+  historyDeletionRequired: boolean;
+}
+
+export interface KamiArchivePreview {
+  deliveredCount: number;
+  archivableCount: number;
+  missingHistoryCount: number;
+  reservedCount: number;
+  reviewRequiredCount: number;
+}
+
+export interface KamiArchiveResult {
+  archivedCount: number;
+  skippedMissingHistoryCount: number;
+}
+
+export interface KamiUsageHistory {
+  id: number;
+  kamiConfigId: number;
+  kamiItemId: number | null;
+  orderId: string;
+  buyerUserId?: string | null;
+  buyerUserName?: string | null;
+  goodsId?: string | null;
+  deliveryIndex: number;
+  deliveryStatus: string;
+  kamiContent: string;
+  contentRevealed: boolean;
+  deliveryTime: string;
+}
+
+export interface KamiUsageHistoryPage {
+  records: KamiUsageHistory[];
+  total: number;
+  pageNum: number;
+  pageSize: number;
+}
+
 export interface SaveKamiConfigReq {
   id?: number;
   xianyuAccountId?: number | null;
@@ -85,11 +126,11 @@ export function getKamiConfigById(id: number) {
   });
 }
 
-export function deleteKamiConfig(id: number) {
-  return request({
+export function deleteKamiConfig(id: number, confirmHistoryDeletion = false) {
+  return request<KamiConfigDeleteResponse>({
     url: '/kami-config/delete',
     method: 'POST',
-    params: { id }
+    params: { id, confirmHistoryDeletion }
   });
 }
 
@@ -207,6 +248,47 @@ export function clearUsedKamiItems(kamiConfigId: number) {
   });
 }
 
+export function previewUsedKamiItems(kamiConfigId: number) {
+  return request<KamiArchivePreview>({
+    url: '/kami-config/item/archive-used/preview',
+    method: 'POST',
+    params: { kamiConfigId }
+  });
+}
+
+export function archiveUsedKamiItems(kamiConfigId: number) {
+  return request<KamiArchiveResult>({
+    url: '/kami-config/item/archive-used',
+    method: 'POST',
+    params: { kamiConfigId }
+  });
+}
+
+export function queryKamiUsageHistory(data: {
+  kamiConfigId: number;
+  orderId?: string;
+  buyerKeyword?: string;
+  goodsId?: string;
+  deliveryStatus?: string;
+  startTime?: string;
+  endTime?: string;
+  pageNum?: number;
+  pageSize?: number;
+}) {
+  return request<KamiUsageHistoryPage>({
+    url: '/kami-usage-history/page',
+    method: 'POST',
+    data
+  });
+}
+
+export function getKamiUsageHistoryDetail(id: number) {
+  return request<KamiUsageHistory>({
+    url: '/kami-usage-history/detail',
+    method: 'POST',
+    params: { id }
+  });
+}
 
 export function resetKamiItem(id: number) {
   return request({
