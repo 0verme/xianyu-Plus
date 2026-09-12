@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/najiuwanan/xianyu-Plus/releases"><img src="https://img.shields.io/github/v/tag/najiuwanan/xianyu-Plus?label=稳定版本&color=2f81f7" alt="稳定版本"></a>
+  <a href="https://github.com/0verme/xianyu-Plus/releases"><img src="https://img.shields.io/github/v/tag/0verme/xianyu-Plus?label=稳定版本&color=2f81f7" alt="稳定版本"></a>
   <img src="https://img.shields.io/badge/Java-21-ED8B00" alt="Java 21">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="Vue 3">
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED" alt="Docker Compose">
@@ -52,7 +52,7 @@ flowchart LR
 - GitHub 版本页只展示当前保留的正式版本记录，后台更新说明与发布版本保持一致。
 - 飞牛 OS 支持网页在线更新，宿主机代理负责备份、校验、重启与回滚，Docker 仍保持两个主要容器。
 
-查看完整更新记录：[Releases](https://github.com/najiuwanan/xianyu-Plus/releases) · [CHANGELOG](CHANGELOG.md)
+查看完整更新记录：[Releases](https://github.com/0verme/xianyu-Plus/releases) · [CHANGELOG](CHANGELOG.md)
 
 ## 核心能力
 
@@ -84,7 +84,7 @@ flowchart LR
 请先准备 Docker Engine（或 Docker Desktop）与 Docker Compose v2。
 
 ```bash
-git clone https://github.com/najiuwanan/xianyu-Plus.git
+git clone https://github.com/0verme/xianyu-Plus.git
 cd xianyu-Plus
 chmod +x install.sh
 ./install.sh
@@ -193,20 +193,9 @@ docker compose down
 
 部署完成后，欢迎交流使用体验、功能建议、问题反馈和可改进之处。
 
-<table>
-  <tr>
-    <td width="50%" align="center"><strong>闲鱼交流微信群</strong></td>
-    <td width="50%" align="center"><strong>赞赏支持</strong></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <img src="docs/images/xianyuplus-community-qr.jpg" alt="闲鱼交流微信群二维码" width="250" />
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/images/xianyuplus-reward-qr.jpg" alt="小米粥的赞赏码" width="250" />
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/xianyuplus-community-qr.jpg" alt="闲鱼交流微信群二维码" width="250" />
+</p>
 
 > 群二维码存在有效期；如失效，请通过 GitHub Issue 留言，我会补充新的二维码。
 

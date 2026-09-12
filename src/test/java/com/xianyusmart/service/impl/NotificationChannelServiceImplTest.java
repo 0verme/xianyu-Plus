@@ -8,6 +8,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -74,6 +75,20 @@ class NotificationChannelServiceImplTest {
 
         assertTrue(exception.getMessage().contains("通知服务拒绝请求"));
         assertEquals(1, server.getRequestCount());
+    }
+
+    @Test
+    void stockAlertIsOptInPerNotificationChannel() throws Exception {
+        JsonNode defaultConfig = OBJECT_MAPPER.readTree("{}");
+        JsonNode enabledConfig = OBJECT_MAPPER.readTree("{\"notifyKamiStockAlert\":true}");
+
+        assertFalse((Boolean) ReflectionTestUtils.invokeMethod(
+                service, "shouldNotify", defaultConfig, "KAMI_STOCK_ALERT"));
+        assertTrue((Boolean) ReflectionTestUtils.invokeMethod(
+                service, "shouldNotify", enabledConfig, "KAMI_STOCK_ALERT"));
+        assertTrue(((String) ReflectionTestUtils.invokeMethod(
+                service, "getDefaultContentTemplate", "KAMI_STOCK_ALERT"))
+                .contains("{availableCount}"));
     }
 
     @Test

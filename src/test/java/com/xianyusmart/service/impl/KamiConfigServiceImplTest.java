@@ -4,19 +4,29 @@ import com.xianyusmart.common.ResultObject;
 import com.xianyusmart.entity.XianyuKamiConfig;
 import com.xianyusmart.entity.XianyuKamiItem;
 import com.xianyusmart.entity.XianyuKamiUsageRecord;
+import com.xianyusmart.exception.BusinessException;
 import com.xianyusmart.mapper.XianyuKamiConfigMapper;
 import com.xianyusmart.mapper.XianyuKamiItemMapper;
 import com.xianyusmart.mapper.XianyuKamiUsageRecordMapper;
+import com.xianyusmart.service.NotificationChannelService;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +39,8 @@ class KamiConfigServiceImplTest {
     private XianyuKamiItemMapper kamiItemMapper;
     @Mock
     private XianyuKamiUsageRecordMapper kamiUsageRecordMapper;
+    @Mock
+    private NotificationChannelService notificationChannelService;
     @InjectMocks
     private KamiConfigServiceImpl service;
 
@@ -78,6 +90,94 @@ class KamiConfigServiceImplTest {
 
         assertEquals(200, result.getCode());
         assertEquals(0, config.getUsedCount());
+        verify(kamiConfigMapper).updateById(config);
+    }
+
+    @Test
+    void sendsStockAlertOnlyWhenPersistedStateCrossesThreshold() {
+        XianyuKamiConfig config = new XianyuKamiConfig();
+        config.setId(7L);
+        config.setAlertEnabled(1);
+        config.setAlertThresholdType(1);
+        config.setAlertThresholdValue(3);
+        config.setAlertState(0);
+        when(kamiConfigMapper.lockById(7L)).thenReturn(config);
+        when(kamiItemMapper.countByConfigId(7L)).thenReturn(10);
+        when(kamiItemMapper.countUsed(7L)).thenReturn(8);
+        when(kamiItemMapper.countUnused(7L)).thenReturn(2, 2, 8, 2);
+
+        ReflectionTestUtils.invokeMethod(service, "refreshConfigCounts", 7L);
+        ReflectionTestUtils.invokeMethod(service, "refreshConfigCounts", 7L);
+        assertEquals(1, config.getAlertState());
+        verify(notificationChannelService, times(1))
+                .dispatchMessage(eq("KAMI_STOCK_ALERT"), isNull(), any());
+
+        ReflectionTestUtils.invokeMethod(service, "refreshConfigCounts", 7L);
+        assertEquals(0, config.getAlertState());
+        ReflectionTestUtils.invokeMethod(service, "refreshConfigCounts", 7L);
+        verify(notificationChannelService, times(2))
+                .dispatchMessage(eq("KAMI_STOCK_ALERT"), isNull(), any());
+    }
+
+    @Test
+    void stockAlertNotificationFailureDoesNotFailInventoryRefresh() {
+        XianyuKamiConfig config = new XianyuKamiConfig();
+        config.setId(7L);
+        config.setAlertEnabled(1);
+        config.setAlertThresholdType(1);
+        config.setAlertThresholdValue(3);
+        when(kamiConfigMapper.lockById(7L)).thenReturn(config);
+        when(kamiItemMapper.countByConfigId(7L)).thenReturn(10);
+        when(kamiItemMapper.countUsed(7L)).thenReturn(10);
+        when(kamiItemMapper.countUnused(7L)).thenReturn(0);
+        doThrow(new IllegalStateException("executor unavailable")).when(notificationChannelService)
+                .dispatchMessage(eq("KAMI_STOCK_ALERT"), isNull(), any());
+
+        assertDoesNotThrow(() -> ReflectionTestUtils.invokeMethod(service, "refreshConfigCounts", 7L));
+        assertEquals(1, config.getAlertState());
+        verify(kamiConfigMapper).updateById(config);
+    }
+
+    @Test
+    void persistsLowStockStateWhenReservationCannotBeSatisfied() {
+        XianyuKamiConfig config = new XianyuKamiConfig();
+        config.setId(7L);
+        config.setAlertEnabled(1);
+        config.setAlertThresholdType(1);
+        config.setAlertThresholdValue(3);
+        when(kamiConfigMapper.lockById(7L)).thenReturn(config);
+        when(kamiItemMapper.lockAvailable(7L, 1)).thenReturn(java.util.List.of());
+        when(kamiItemMapper.countByConfigId(7L)).thenReturn(1);
+        when(kamiItemMapper.countUsed(7L)).thenReturn(1);
+        when(kamiItemMapper.countUnused(7L)).thenReturn(0);
+
+        assertThrows(BusinessException.class, () -> service.reserveKami(7L, "order-1", 1));
+
+        assertEquals(1, config.getAlertState());
+        verify(kamiConfigMapper).updateById(config);
+        verify(notificationChannelService).dispatchMessage(eq("KAMI_STOCK_ALERT"), isNull(), any());
+    }
+
+    @Test
+    void releasingReservationRefreshesAndCanResetRecoveredAlertState() {
+        XianyuKamiConfig config = new XianyuKamiConfig();
+        config.setId(7L);
+        config.setAlertEnabled(1);
+        config.setAlertThresholdType(1);
+        config.setAlertThresholdValue(3);
+        config.setAlertState(1);
+        XianyuKamiItem item = item(11L, 7L, 2);
+        when(kamiItemMapper.findByOrderAndStatus("order-1", 2)).thenReturn(java.util.List.of(item));
+        when(kamiItemMapper.releaseReservation("order-1")).thenReturn(1);
+        when(kamiConfigMapper.lockById(7L)).thenReturn(config);
+        when(kamiItemMapper.countByConfigId(7L)).thenReturn(5);
+        when(kamiItemMapper.countUsed(7L)).thenReturn(1);
+        when(kamiItemMapper.countUnused(7L)).thenReturn(4);
+
+        service.releaseReservation("order-1");
+
+        assertEquals(0, config.getAlertState());
+        verify(kamiItemMapper).releaseReservation("order-1");
         verify(kamiConfigMapper).updateById(config);
     }
 

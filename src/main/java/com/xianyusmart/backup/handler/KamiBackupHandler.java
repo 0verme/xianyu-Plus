@@ -150,6 +150,8 @@ public class KamiBackupHandler implements DataBackupHandler {
                     config.setAlertThresholdType(map.get("alertThresholdType") != null ? ((Number) map.get("alertThresholdType")).intValue() : null);
                     config.setAlertThresholdValue(map.get("alertThresholdValue") != null ? ((Number) map.get("alertThresholdValue")).intValue() : null);
                     config.setAlertEmail((String) map.get("alertEmail"));
+                    // 预警状态是运行时 edge-trigger 游标，恢复配置后从正常状态重新开始。
+                    config.setAlertState(0);
 
                     if (existing == null) {
                         config.setTotalCount(0);

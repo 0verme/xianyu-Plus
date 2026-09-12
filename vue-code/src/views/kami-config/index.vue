@@ -1322,6 +1322,7 @@ onUnmounted(() => {
                 <label class="form-label">预警邮箱</label>
                 <input v-model="alertForm.alertEmail" class="form-input" placeholder="留空则使用系统设置的邮箱" />
               </div>
+              <p class="form-hint">预警默认关闭。开启后，SMTP 邮件会按此配置发送；其他渠道请在“通知渠道”中开启“卡密库存预警”。</p>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" @click="showAlertDialog = false">取消</button>

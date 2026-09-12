@@ -9,6 +9,7 @@ import com.xianyusmart.entity.SysNotificationChannel;
 import com.xianyusmart.entity.XianyuAccount;
 import com.xianyusmart.mapper.SysNotificationChannelMapper;
 import com.xianyusmart.mapper.XianyuAccountMapper;
+import com.xianyusmart.service.EmailNotifyService;
 import com.xianyusmart.service.NotificationChannelService;
 import com.xianyusmart.service.OperationLogService;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,9 @@ public class NotificationChannelServiceImpl extends ServiceImpl<SysNotificationC
     private XianyuAccountMapper accountMapper;
 
     @Autowired(required = false)
+    private EmailNotifyService emailNotifyService;
+
+    @Autowired(required = false)
     private OperationLogService operationLogService;
 
     private String getDefaultTitleTemplate(String eventType) {
@@ -58,6 +62,7 @@ public class NotificationChannelServiceImpl extends ServiceImpl<SysNotificationC
             case "ACCOUNT_OFFLINE" -> "XianYuPlus｜账号掉线或异常";
             case "NEW_MESSAGE" -> "XianYuPlus｜需要人工介入回复";
             case "AUTOMATION_EXCEPTION" -> "XianYuPlus｜自动化异常待处理";
+            case "KAMI_STOCK_ALERT" -> "XianYuPlus｜卡密库存预警｜{configName}";
             default -> "XianYuPlus｜系统通知";
         };
     }
@@ -69,6 +74,7 @@ public class NotificationChannelServiceImpl extends ServiceImpl<SysNotificationC
             case "ACCOUNT_OFFLINE" -> "原因：{reason}";
             case "NEW_MESSAGE" -> "商品：{goodsName}\n买家：{buyerName}\n买家消息：\n{msgContent}\n原因：{reason}";
             case "AUTOMATION_EXCEPTION" -> "类型：{action}\n账号：{accountNote}（ID：{accountId}）\n订单号：{orderId}\n商品：{goodsName}\n买家：{buyerName}\n原因：{reason}";
+            case "KAMI_STOCK_ALERT" -> "卡密库：{configName}（ID：{configId}）\n可用库存：{availableCount}\n库存总量：{totalCount}\n预警阈值：{thresholdType} {thresholdValue}\n原因：{reason}";
             default -> "{content}";
         };
     }
@@ -107,6 +113,11 @@ public class NotificationChannelServiceImpl extends ServiceImpl<SysNotificationC
             messageParams.put("accountNote", account != null && account.getAccountNote() != null
                     ? account.getAccountNote()
                     : "");
+        }
+
+        // SMTP 邮件是历史配置入口，作为统一库存事件的兼容适配器保留；发送本身异步且失败隔离。
+        if ("KAMI_STOCK_ALERT".equals(eventType)) {
+            dispatchLegacyStockAlertEmail(messageParams);
         }
 
         List<SysNotificationChannel> channels = this.lambdaQuery()
@@ -180,8 +191,28 @@ public class NotificationChannelServiceImpl extends ServiceImpl<SysNotificationC
             case "NEW_MESSAGE" -> config.path("notifyNewMessage").asBoolean(true);
             // 这是新增事件；旧渠道默认关闭，避免升级后在用户不知情时产生额外推送。
             case "AUTOMATION_EXCEPTION" -> config.path("notifyAutomationException").asBoolean(false);
+            // 库存配置本身也有独立开关；渠道开关默认关闭，升级不会改变既有推送范围。
+            case "KAMI_STOCK_ALERT" -> config.path("notifyKamiStockAlert").asBoolean(false);
             default -> true;
         };
+    }
+
+    private void dispatchLegacyStockAlertEmail(Map<String, Object> params) {
+        if (emailNotifyService == null) {
+            return;
+        }
+        try {
+            Object alertEmail = params.get("alertEmail");
+            Object availableCount = params.get("availableCount");
+            Object totalCount = params.get("totalCount");
+            emailNotifyService.sendKamiAlertEmail(
+                    alertEmail == null ? null : String.valueOf(alertEmail),
+                    String.valueOf(params.getOrDefault("configName", "卡密配置")),
+                    availableCount instanceof Number number ? number.intValue() : 0,
+                    totalCount instanceof Number number ? number.intValue() : 0);
+        } catch (Exception e) {
+            log.error("兼容 SMTP 库存预警通知触发失败，不影响其他通知渠道", e);
+        }
     }
 
     private NotificationSendResult sendNotification(String type, JsonNode config, String title, String content)

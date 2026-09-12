@@ -165,6 +165,21 @@
               <p class="template-hint">开启后，自动发货、评价、小红花和商品擦亮出现异常时会推送；同一账号同一类异常 5 分钟内会合并一次，避免消息轰炸。</p>
             </div>
           </div>
+
+          <div class="notify-item">
+            <label class="checkbox-label">
+              <input type="checkbox" v-model="formConfig.notifyKamiStockAlert" /> 卡密库存预警
+            </label>
+            <div class="template-config" v-if="formConfig.notifyKamiStockAlert">
+              <div class="template-config__header">
+                <label>自定义正文模板</label>
+                <button type="button" @click="restoreTemplate('KAMI_STOCK_ALERT')">恢复示例</button>
+              </div>
+              <p class="template-variables">可用变量：{configName}、{configId}、{availableCount}、{totalCount}、{thresholdType}、{thresholdValue}、{reason}</p>
+              <textarea v-model="formConfig.templates.KAMI_STOCK_ALERT.content" rows="5"></textarea>
+              <p class="template-hint">卡券库预警配置开启且库存首次低于阈值时推送；补充库存恢复后，下一次低于阈值会再次提醒。</p>
+            </div>
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -222,7 +237,7 @@
         </div>
 
         <div class="form-divider">提醒事件</div>
-        <p class="form-hint email-event-hint">卡券库存预警、缺货和自动发货失败等邮件会继续按原有规则发送。</p>
+        <p class="form-hint email-event-hint">卡券库预警会按卡券库开关发送到 SMTP；其他通知渠道可在渠道配置中单独开启库存预警事件。</p>
         <div class="email-event-list">
           <div class="email-event">
             <span>
@@ -310,7 +325,8 @@ const templateExamples = {
   CREDENTIAL_UPDATE_REQUIRED: '凭证：{credentialType}\n原因：{reason}\n处理：{action}',
   ACCOUNT_OFFLINE: '账号：{accountNote}（ID：{accountId}）\n原因：{reason}',
   NEW_MESSAGE: '商品：{goodsName}\n买家：{buyerName}\n买家消息：\n{msgContent}\n原因：{reason}',
-  AUTOMATION_EXCEPTION: '类型：{action}\n账号：{accountNote}（ID：{accountId}）\n订单号：{orderId}\n商品：{goodsName}\n买家：{buyerName}\n原因：{reason}'
+  AUTOMATION_EXCEPTION: '类型：{action}\n账号：{accountNote}（ID：{accountId}）\n订单号：{orderId}\n商品：{goodsName}\n买家：{buyerName}\n原因：{reason}',
+  KAMI_STOCK_ALERT: '卡密库：{configName}（ID：{configId}）\n可用库存：{availableCount}\n库存总量：{totalCount}\n预警阈值：{thresholdType} {thresholdValue}\n原因：{reason}'
 } as const
 
 type NotificationEventType = keyof typeof templateExamples
@@ -320,14 +336,16 @@ const createDefaultFormConfig = () => ({
   notifyAccountOffline: true,
   notifyCredentialUpdate: true,
   notifyNewMessage: true,
-  // 新增异常提醒默认关闭，避免已有渠道在升级后未经确认就产生推送。
+  // 新增事件默认关闭，避免已有渠道在升级后未经确认就产生推送。
   notifyAutomationException: false,
+  notifyKamiStockAlert: false,
   templates: {
     AUTO_DELIVERY: { content: templateExamples.AUTO_DELIVERY },
     CREDENTIAL_UPDATE_REQUIRED: { content: templateExamples.CREDENTIAL_UPDATE_REQUIRED },
     ACCOUNT_OFFLINE: { content: templateExamples.ACCOUNT_OFFLINE },
     NEW_MESSAGE: { content: templateExamples.NEW_MESSAGE },
-    AUTOMATION_EXCEPTION: { content: templateExamples.AUTOMATION_EXCEPTION }
+    AUTOMATION_EXCEPTION: { content: templateExamples.AUTOMATION_EXCEPTION },
+    KAMI_STOCK_ALERT: { content: templateExamples.KAMI_STOCK_ALERT }
   }
 })
 
@@ -347,7 +365,8 @@ const normalizeFormConfig = (config: unknown) => {
       CREDENTIAL_UPDATE_REQUIRED: { ...defaults.templates.CREDENTIAL_UPDATE_REQUIRED, ...templates.CREDENTIAL_UPDATE_REQUIRED },
       ACCOUNT_OFFLINE: { ...defaults.templates.ACCOUNT_OFFLINE, ...templates.ACCOUNT_OFFLINE },
       NEW_MESSAGE: { ...defaults.templates.NEW_MESSAGE, ...templates.NEW_MESSAGE },
-      AUTOMATION_EXCEPTION: { ...defaults.templates.AUTOMATION_EXCEPTION, ...templates.AUTOMATION_EXCEPTION }
+      AUTOMATION_EXCEPTION: { ...defaults.templates.AUTOMATION_EXCEPTION, ...templates.AUTOMATION_EXCEPTION },
+      KAMI_STOCK_ALERT: { ...defaults.templates.KAMI_STOCK_ALERT, ...templates.KAMI_STOCK_ALERT }
     }
   }
   ;(Object.keys(templateExamples) as NotificationEventType[]).forEach((eventType) => {

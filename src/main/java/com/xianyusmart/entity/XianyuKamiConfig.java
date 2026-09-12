@@ -38,11 +38,16 @@ public class XianyuKamiConfig {
 
     private Integer apiTimeoutSeconds;
 
-    private Integer alertEnabled;
+    /** 是否启用库存预警，默认关闭。 */
+    private Integer alertEnabled = 0;
 
-    private Integer alertThresholdType;
+    /** 1按数量，2按可用库存百分比。 */
+    private Integer alertThresholdType = 1;
 
-    private Integer alertThresholdValue;
+    private Integer alertThresholdValue = 10;
+
+    /** 持久化 edge-trigger 状态：0正常，1已进入预警区间。 */
+    private Integer alertState = 0;
 
     private String alertEmail;
 
