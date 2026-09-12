@@ -89,6 +89,25 @@ class FlywayMigrationConsistencyTest {
     }
 
     @Test
+    void buyerBlacklistMigrationUsesRestrictForMySqlGeneratedColumnCompatibility() throws IOException {
+        String v21 = new ClassPathResource("db/migration/V21__add_buyer_blacklist.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(v21.contains("account_scope BIGINT GENERATED ALWAYS"));
+        assertTrue(v21.contains("ON DELETE RESTRICT"));
+        assertTrue(!v21.contains("ON DELETE CASCADE"));
+    }
+
+    @Test
+    void kamiAlertMigrationPersistsAnEdgeTriggeredState() throws IOException {
+        String v33 = new ClassPathResource("db/migration/V33__add_kami_alert_state.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(v33.contains("ADD COLUMN alert_state TINYINT NOT NULL DEFAULT 0"));
+        assertTrue(v33.contains("AFTER alert_email"));
+    }
+
+    @Test
     void reliabilityMigrationAddsFencingAndRecoverableTasks() throws IOException {
         String v30 = new ClassPathResource("db/migration/V30__complete_automation_reliability.sql")
                 .getContentAsString(StandardCharsets.UTF_8);

@@ -66,6 +66,8 @@ class AutomationHardeningSourceTest {
         assertTrue(pull > stash);
         assertTrue(source.contains("git diff --cached --quiet"));
         assertTrue(source.contains("git ls-files --others --exclude-standard"));
+        assertFalse(source.contains("UPDATE flyway_schema_history"));
+        assertFalse(source.contains("repair-v21-buyer-blacklist"));
     }
 
     @Test

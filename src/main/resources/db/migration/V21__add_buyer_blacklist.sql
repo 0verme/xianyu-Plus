@@ -11,6 +11,7 @@ CREATE TABLE xianyu_buyer_blacklist (
     PRIMARY KEY (id),
     UNIQUE KEY uk_buyer_blacklist_scope (account_scope, buyer_user_id),
     KEY idx_buyer_blacklist_lookup (buyer_user_id, enabled, account_scope),
+    -- MySQL 8.x rejects cascading actions when the base column feeds a generated column.
     CONSTRAINT fk_buyer_blacklist_account FOREIGN KEY (xianyu_account_id)
-        REFERENCES xianyu_account (id) ON DELETE CASCADE
+        REFERENCES xianyu_account (id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
