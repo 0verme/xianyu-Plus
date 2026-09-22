@@ -85,10 +85,11 @@ if docker ps -aq --filter label=com.docker.compose.project=xianyusmart | grep -q
 fi
 
 echo "正在以 XianYuPlus 名称重新构建并启动容器..."
-export APP_GIT_SHA="$(git rev-parse --verify HEAD 2>/dev/null || echo unknown)"
+APP_GIT_SHA="$(git rev-parse --verify HEAD 2>/dev/null || echo unknown)"
+export APP_GIT_SHA
 
-# A failed V21 must be repaired by Flyway before the application migration can retry.
-# Never update flyway_schema_history directly from the deployment script.
+# V21 is an immutable published migration. Never repair or update
+# flyway_schema_history from the deployment script.
 docker compose up -d mysql
 for attempt in $(seq 1 60); do
     if docker compose exec -T mysql sh -c 'mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
@@ -102,8 +103,10 @@ for attempt in $(seq 1 60); do
 done
 
 V21_FAILED="$(docker compose exec -T mysql sh -c 'mysql -N -s -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM flyway_schema_history WHERE version='"'"'21'"'"' AND success=0"' 2>/dev/null || true)"
-if [ "${V21_FAILED//$'\r'/}" = "1" ]; then
-    echo "检测到 V21 黑名单迁移失败。请先停止 app、备份数据库，并按 src/main/resources/sql/README.md 使用 Flyway repair；更新脚本不会直接修改 flyway_schema_history。" >&2
+V21_FAILED="${V21_FAILED//$'\r'/}"
+if [[ "$V21_FAILED" =~ ^[1-9][0-9]*$ ]]; then
+    echo "检测到 V21 黑名单迁移失败。为保护不可变 migration history，更新脚本不会 repair 或修改 flyway_schema_history。" >&2
+    echo "请停止应用、保留数据库现场，并按生产变更与备份恢复流程处理后再更新。" >&2
     exit 1
 fi
 

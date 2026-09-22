@@ -20,7 +20,8 @@ app:
     auto-reconnect-on-startup: ${WEBSOCKET_AUTO_RECONNECT_ON_STARTUP:true}
     startup-reconnect-delay-ms: ${WEBSOCKET_STARTUP_RECONNECT_DELAY_MS:10000}
     startup-reconnect-attempts: ${WEBSOCKET_STARTUP_RECONNECT_ATTEMPTS:8}
-    startup-reconnect-interval-ms: ${WEBSOCKET_STARTUP_RECONNECT_INTERVAL_MS:30000}
+    startup-reconnect-interval-ms: >-
+      ${WEBSOCKET_STARTUP_RECONNECT_INTERVAL_MS:30000}
   item-polish:
     scan-delay-ms: ${ITEM_POLISH_SCAN_DELAY_MS:30000}
     initial-delay-ms: ${ITEM_POLISH_INITIAL_DELAY_MS:90000}
@@ -30,7 +31,8 @@ app:
       failure-threshold: ${AUTOMATION_RISK_FAILURE_THRESHOLD:3}
       failure-window-minutes: ${AUTOMATION_RISK_FAILURE_WINDOW_MINUTES:30}
   security:
-    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:12400}
+    allowed-origins: >-
+      ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:12400}
     trust-proxy: ${TRUST_PROXY:false}
 
 # AI功能开关（默认开启，API Key从数据库xianyu_sys_setting表读取，未配置时AI功能自动降级）
@@ -48,7 +50,9 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: GMT+8
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/xianyusmart?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true}
+    url: "${DB_URL:jdbc:mysql://localhost:3306/xianyusmart?useUnicode=true&\
+      characterEncoding=utf8&serverTimezone=Asia/Shanghai&\
+      rewriteBatchedStatements=true}"
     username: ${DB_USERNAME:xianyusmart}
     password: ${DB_PASSWORD}
     hikari:
@@ -65,7 +69,8 @@ spring:
   # AI配置说明：
   # - ai_api_key、ai_base_url、ai_model 配置在数据库 xianyu_sys_setting 表中
   # - 通过 DynamicAIChatClientManager 动态读取，支持热更新无需重启
-  # - 默认值：base_url=https://dashscope.aliyuncs.com/compatible-mode, model=deepseek-v3
+  # - 默认值：base_url=https://dashscope.aliyuncs.com/compatible-mode，
+  #   model=deepseek-v3
 
 # MyBatis配置
 mybatis-plus:

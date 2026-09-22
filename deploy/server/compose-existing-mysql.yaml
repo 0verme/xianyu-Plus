@@ -17,10 +17,13 @@ services:
       UPDATE_RELEASE_API: ${UPDATE_RELEASE_API:-}
       DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-10}
       DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-2}
-      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=55 -XX:InitialRAMPercentage=20 -XX:+ExitOnOutOfMemoryError}
+      JAVA_OPTS: >-
+        ${JAVA_OPTS:--XX:MaxRAMPercentage=55 -XX:InitialRAMPercentage=20
+        -XX:+ExitOnOutOfMemoryError}
       TZ: ${TZ:-Asia/Shanghai}
     extra_hosts:
-      # 复用宿主机 MySQL，避免低内存服务器重复运行数据库实例。
+      # 复用宿主机 MySQL，避免低内存服务器
+      # 重复运行数据库实例。
       - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:12400:12400"
@@ -33,7 +36,11 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:12400/actuator/health || exit 1"]
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null http://127.0.0.1:12400/actuator/health
+          || exit 1
       interval: 30s
       timeout: 5s
       retries: 3
