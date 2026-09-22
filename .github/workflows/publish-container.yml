@@ -1,6 +1,7 @@
+---
 name: Publish container image
 
-on:
+'on':
   release:
     types: [published]
   workflow_dispatch:
@@ -17,6 +18,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: 0verme/xianyu-plus
+  IMAGE_REPOSITORY: ghcr.io/0verme/xianyu-plus
 
 jobs:
   publish:
@@ -24,15 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出发布版本
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
 
       - name: 配置 Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        uses: >-
+          docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: 登录 GitHub Container Registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -42,38 +45,39 @@ jobs:
         id: image
         shell: bash
         run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}"
+          TAG="${{ inputs.tag || github.event.release.tag_name }}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "rev=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: 构建并发布镜像
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_REPOSITORY }}:${{ steps.image.outputs.tag }}
+            ${{ env.IMAGE_REPOSITORY }}:latest
           labels: |
             org.opencontainers.image.title=XianYuPlus
             org.opencontainers.image.description=单商家私有化闲鱼虚拟商品经营助手
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ steps.image.outputs.revision }}
+            org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.revision=${{ steps.image.outputs.rev }}
             org.opencontainers.image.version=${{ steps.image.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
   release-artifacts:
     name: Build release JAR
     runs-on: ubuntu-latest
     steps:
       - name: 检出发布版本
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
 
       - name: 配置 Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '20'
           cache: npm
@@ -87,11 +91,17 @@ jobs:
           npm run build
 
       - name: 配置 Java 21
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
+
+      - name: 校验历史 Flyway migration 不可变
+        shell: bash
+        run: |
+          chmod +x mvnw
+          ./mvnw -Dtest=FlywayMigrationImmutabilityTest test
 
       - name: 构建并校验后端
         shell: bash
@@ -103,7 +113,7 @@ jobs:
         id: artifact
         shell: bash
         run: |
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}"
+          TAG="${{ inputs.tag || github.event.release.tag_name }}"
           VERSION="${TAG#v}"
           JAR="xianyu-plus-${VERSION}.jar"
           cp target/xianyu-plus.jar "$JAR"
@@ -114,4 +124,6 @@ jobs:
       - name: 上传 JAR 与校验文件
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.artifact.outputs.tag }}" "${{ steps.artifact.outputs.jar }}" SHA256SUMS.txt --clobber
+        run: >-
+          gh release upload "${{ steps.artifact.outputs.tag }}"
+          "${{ steps.artifact.outputs.jar }}" SHA256SUMS.txt --clobber

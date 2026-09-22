@@ -6,6 +6,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlywayMigrationConsistencyTest {
@@ -89,13 +90,36 @@ class FlywayMigrationConsistencyTest {
     }
 
     @Test
-    void buyerBlacklistMigrationUsesRestrictForMySqlGeneratedColumnCompatibility() throws IOException {
+    void buyerBlacklistMigrationRetainsThePublishedCascadeAction() throws IOException {
         String v21 = new ClassPathResource("db/migration/V21__add_buyer_blacklist.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
 
         assertTrue(v21.contains("account_scope BIGINT GENERATED ALWAYS"));
-        assertTrue(v21.contains("ON DELETE RESTRICT"));
-        assertTrue(!v21.contains("ON DELETE CASCADE"));
+        assertTrue(v21.contains("ON DELETE CASCADE"));
+        assertFalse(v21.contains("ON DELETE RESTRICT"));
+    }
+
+    @Test
+    void buyerBlacklistNormalizationIsAForwardMigration() throws IOException {
+        String v34 = new ClassPathResource("db/migration/V34__normalize_buyer_blacklist_fk.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(v34.contains("DROP FOREIGN KEY fk_buyer_blacklist_account"));
+        assertTrue(v34.contains("ADD CONSTRAINT fk_buyer_blacklist_account"));
+        assertTrue(v34.contains("ON DELETE RESTRICT"));
+    }
+
+    @Test
+    void currentSchemaBaselineExcludesFlywayHistoryAndUsesRestrict() throws IOException {
+        String baseline = new ClassPathResource("db/migration/B33__current_schema.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertFalse(baseline.contains("flyway_schema_history"));
+        assertFalse(baseline.contains("INSERT INTO"));
+        assertFalse(baseline.contains("AUTO_INCREMENT="));
+        assertTrue(baseline.contains("CREATE TABLE `xianyu_buyer_blacklist`"));
+        assertTrue(baseline.contains("CONSTRAINT `fk_buyer_blacklist_account`"));
+        assertTrue(baseline.contains("ON DELETE RESTRICT"));
     }
 
     @Test

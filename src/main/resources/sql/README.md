@@ -4,14 +4,19 @@ XianYuPlus 支持 MySQL 8.0 及以上版本，数据库结构由 Flyway 管理�
 
 ## 文件位置
 
-- `db/migration/V1__baseline.sql`：全新环境完整基线。
-- 后续版本：按 `V2__说明.sql`、`V3__说明.sql` 顺序新增，不修改已发布迁移。
+- `db/migration/V1__baseline.sql`：历史版本的初始迁移，只能读取，不能修改。
+- `db/migration/B33__current_schema.sql`：全新空库使用的当前 schema baseline，省略 Flyway history、数据和当前自增值。
+- `db/migration/V34__normalize_buyer_blacklist_fk.sql`：已有数据库的前向迁移，将黑名单账号外键规范为 `ON DELETE RESTRICT`。
+- 后续版本：按 `V35__说明.sql`、`V36__说明.sql` 顺序新增，不修改已发布 migration。
 
-## 初始化流程
+## 初始化与升级流程
 
 1. 创建空数据库并配置 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。
 2. 启动应用。
-3. Flyway 在业务组件启动前创建表、唯一约束和索引。
+3. 空库由 Flyway 应用 `B33`，随后执行 `V34`；不会重新执行 V1–V33。
+4. 已有 Flyway history 的数据库继续从当前版本升级，按顺序执行未应用的版本。
+
+`B33` 只用于没有 Flyway history 的全新空库。它绕过 MySQL 8.0/8.4 无法执行的历史 V21 DDL，同时提供与升级路径等价的业务 schema。不要把 `B33` 当作已有数据库的修复脚本。
 
 ## 关键约束
 
@@ -21,30 +26,21 @@ XianYuPlus 支持 MySQL 8.0 及以上版本，数据库结构由 Flyway 管理�
 - 自动回复以账号、会话和消息去重。
 - 持久任务按状态、重试时间和租约到期时间领取。
 
-### V21 在 MySQL 8.x 上的升级说明
+### V21 与 V34 的不可变迁移策略
 
-V21 已随 V1.4.0 发布，并一直包含在后续版本中。原迁移同时把 `xianyu_account_id` 作为 `account_scope` 的 stored generated column 基础列，并为该列配置 `ON DELETE CASCADE`。MySQL 8.0/8.4 禁止这种生成列依赖上的级联外键动作，因此全新数据库会在 V21 失败。修复版本将外键改为 `ON DELETE RESTRICT`；账号删除事务会先删除该账号专属的黑名单记录，NULL 账号的全局黑名单不会被删除。
+已发布的 V21 必须保持原内容和 checksum，其中黑名单账号外键仍为 `ON DELETE CASCADE`。由于 `xianyu_account_id` 同时是 `account_scope` stored generated column 的基础列，MySQL 8.0/8.4 拒绝该级联外键动作；因此全新安装走 `B33`，不再执行 V21。
 
-这里是对已发布 V21 的有意例外：原 DDL 在项目支持的 MySQL 8.x 上无法成功执行，原地修复比再增加一个永远无法到达的后续 migration 更安全。修改 SQL 会改变 Flyway checksum，已有成功记录应使用标准 Flyway `repair` 更新 checksum；失败的 V21 记录会由 `repair` 移除，应用重启后重新执行修复后的 V21。
+已有数据库如果已经成功应用 V21，则由 V34 删除并重新创建该外键为 `ON DELETE RESTRICT`。V34 是前向迁移，不修改任何历史 SQL 或 `flyway_schema_history` 记录；黑名单数据会保留，存在关联黑名单时删除账号会被数据库拒绝。
 
-如果数据库已经留下 `V21 success = 0`：
+禁止：
 
-1. 停止应用并备份数据库；不要直接 UPDATE `flyway_schema_history`。
-2. 使用与应用兼容的 Flyway CLI，在能连接数据库的环境中执行 `repair`，并指向当前源码的 migration 目录：
+- 修改或重命名 V1–V33；
+- 直接 UPDATE、DELETE 或 INSERT `flyway_schema_history`；
+- 使用 Flyway `repair` 改写历史 checksum；
+- 在生产库手工执行本次迁移中的 DDL。
 
-   ```bash
-   flyway \
-     -url="jdbc:mysql://<mysql-host>:3306/<database>?useSSL=false&allowPublicKeyRetrieval=true" \
-     -user="<database-user>" \
-     -password="<database-password>" \
-     -locations="filesystem:src/main/resources/db/migration" \
-     repair
-   ```
-
-3. 重新构建并启动应用：`docker compose up -d --build`。
-
-在 MySQL 8.0/8.4 的实测中，失败的 `CREATE TABLE` 不会留下 `xianyu_buyer_blacklist` 半成品，因此不需要盲目执行 `DROP TABLE`；如果现场已经存在该表，应先备份并检查其结构，再决定恢复方案。更新脚本不会代替 Flyway 修改 schema history。
+`update.sh` 会在检测到已有 `V21 success = 0` 时停止，不会自动改写 history。此类数据库必须停止应用、保留现场并按生产变更与备份恢复流程处理，不应绕过不可变 migration 保护。
 
 MySQL 官方限制说明：[FOREIGN KEY Constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html)。
 
-禁止在生产库手工修改表结构。结构变更必须新增 Flyway 迁移并在空库和已有版本库分别验证。
+禁止在生产库手工修改表结构。结构变更必须新增 Flyway migration，并在空库和已有版本库分别验证。
